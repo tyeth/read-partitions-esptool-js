@@ -30,13 +30,14 @@ const lblConsoleFor = document.getElementById("lblConsoleFor");
 const lblConnTo = document.getElementById("lblConnTo");
 const table = document.getElementById("fileTable") as HTMLTableElement;
 const alertDiv = document.getElementById("alertDiv");
+const addElfFileButton = document.getElementById("addElfFile") as HTMLInputElement;
 
 const debugLogging = document.getElementById("debugLogging") as HTMLInputElement;
 
 // This is a frontend example of Esptool-JS using local bundle file
 // To optimize use a CDN hosted version like
 // https://unpkg.com/esptool-js@0.5.0/bundle.js
-import { ESPLoader, FlashOptions, LoaderOptions, Transport,
+import { ESPLoader, FlashOptions, LoaderOptions, Transport, AddressDecoder,
   Partitions, PartitionDefinition, PARTITION_TYPES, PARTITION_SUBTYPES, FlashSizeValues } from "../../../lib";
 import { serial } from "web-serial-polyfill";
 
@@ -88,6 +89,27 @@ function handleFileSelect(evt) {
 
   reader.readAsBinaryString(file);
 }
+
+/**
+ * File reader handler to read given local files.
+ * @param {Event} evt File Select event
+ */
+async function handleElfFileSelect(evt) {
+  const files = evt.target.files;
+
+  if (files.length === 0) return;
+  // get all files as an array of arrayBuffers
+  const elfFileBuffers = await Promise.all(Array.from(files).map((file: File) => file.arrayBuffer()));
+  console.log(files, elfFileBuffers);
+  await AddressDecoder.update(elfFileBuffers);
+}
+
+addElfFileButton.onchange = handleElfFileSelect;
+
+const encoder = new TextEncoder();
+export const stringToUInt8Array = function (textString: string) {
+  return encoder.encode(textString);
+};
 
 const espLoaderTerminal = {
   clean() {
@@ -466,6 +488,15 @@ consoleStartButton.onclick = async () => {
     device = await serialLib.requestPort({});
     transport = new Transport(device, true);
   }
+  term.onData((data: string) => {
+    const writer = transport.device.writable?.getWriter();
+    if (writer) {
+      writer.write(stringToUInt8Array(data));
+      writer.releaseLock();
+    } else {
+      console.error("Unable to write to serial port");
+    }
+  });
   lblConsoleFor.style.display = "block";
   lblConsoleBaudrate.style.display = "none";
   consoleBaudrates.style.display = "none";
@@ -477,6 +508,10 @@ consoleStartButton.onclick = async () => {
   await transport.connect(parseInt(consoleBaudrates.value));
   isConsoleClosed = false;
 
+  const output = (line: string) => {
+    term.writeln(line);
+  };
+  let lastLine = "";
   while (true && !isConsoleClosed) {
     const readLoop = transport.rawRead();
     const { value, done } = await readLoop.next();
@@ -484,12 +519,24 @@ consoleStartButton.onclick = async () => {
     if (done || !value) {
       break;
     }
-    term.write(value);
+
+    const valueStr = uInt8ArrayToString(value);
+    lastLine += valueStr;
+    const splitLine = lastLine.split("\r\n");
+    while (splitLine.length > 1) {
+      const line = splitLine.shift();
+      if (line !== undefined) {
+        AddressDecoder.parser(line, output);
+      }
+    }
+    lastLine = splitLine[0];
   }
   console.log("quitting console");
 };
 
 consoleStopButton.onclick = async () => {
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  term.onData = () => {};
   isConsoleClosed = true;
   if (transport) {
     await transport.disconnect();
@@ -505,6 +552,19 @@ consoleStopButton.onclick = async () => {
   programDiv.style.display = "initial";
   cleanUp();
 };
+
+/**
+ * Convert a Uint8Array to a string
+ * @param {Uint8Array} fileBuffer Uint8Array to convert
+ * @returns {string} String representation of the Uint8Array
+ */
+export function uInt8ArrayToString(fileBuffer: Uint8Array): string {
+  let fileBufferString = "";
+  for (let i = 0; i < fileBuffer.length; i++) {
+    fileBufferString += String.fromCharCode(fileBuffer[i]);
+  }
+  return fileBufferString;
+}
 
 function generateDownloadLinkFromTableRow(row: string[], data: Uint8Array<ArrayBufferLike>) {
   const type = row[0] === "user_fs" ? `${row[0]}_${row[2]}` : row[0];

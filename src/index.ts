@@ -22,3 +22,4 @@ export {
   TYPES as PARTITION_TYPES,
   SUBTYPES as PARTITION_SUBTYPES,
 } from "./gen_esp32part.py.js";
+export { AddressDecoder } from "./panic_decoder";

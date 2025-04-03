@@ -44,3 +44,15 @@ export function bstrToUi8(bStr: string) {
   }
   return u8Array;
 }
+
+/**
+ * get the SHA256 hash of an ArrayBuffer
+ * @param {ArrayBufferLike} arrayBuffer ArrayBuffer to hash
+ * @returns {string} SHA256 hash of the ArrayBuffer
+ */
+export async function getSHA256(arrayBuffer: ArrayBufferLike): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex;
+}
