@@ -155,7 +155,19 @@ connectButton.onclick = async () => {
     consoleDiv.style.display = "none";
   } catch (e) {
     console.error(e);
-    term.writeln(`Error: ${e.message}`);
+    term.writeln(`ESPLoader.main() Error: ${e.message}`);
+    try {
+      if (connectButton.style.display !== "none") connectButton.style.display = "none";
+      if (disconnectButton.style.display !== "block") disconnectButton.style.display = "block";
+      if (lblConnTo.style.display === "none") lblConnTo.style.display = "block";
+      if (baudrates.style.display === "none") baudrates.style.display = "block";
+      if (lblBaudrate.style.display === "none") lblBaudrate.style.display = "block";
+      lblConnTo.innerHTML = "Connection failed, please try again.";
+      if (device) await device.close();
+      cleanUp();
+    } catch (cleanupError) {
+      console.error("Error during cleanup:", cleanupError);
+    }
   }
 };
 
@@ -462,7 +474,18 @@ function downloadPartitionRow(row: string[]) {
 }
 
 disconnectButton.onclick = async () => {
-  if (transport) await transport.disconnect();
+  try {
+    if (device) await device.close();
+  } catch (e) {
+    console.error(e);
+    term.writeln(`Error closing device: ${e.message}`);
+  }
+  try {
+    if (transport) await transport.disconnect();
+  } catch (e) {
+    console.error(e);
+    term.writeln(`Error disconnecting transport: ${e.message}`);
+  }
 
   term.reset();
   lblBaudrate.style.display = "initial";
