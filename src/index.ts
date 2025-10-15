@@ -16,3 +16,10 @@ export { FlashOptions } from "./types/flashOptions.js";
 export { IEspLoaderTerminal } from "./types/loaderTerminal.js";
 export { Before, After } from "./types/resetModes.js";
 export { FlashModeValues, FlashSizeValues, FlashFreqValues } from "./types/arguments.js";
+export {
+  PartitionDefinition,
+  Partitions,
+  TYPES as PARTITION_TYPES,
+  SUBTYPES as PARTITION_SUBTYPES,
+} from "./gen_esp32part.py.js";
+export { AddressDecoder } from "./address_decoder";
