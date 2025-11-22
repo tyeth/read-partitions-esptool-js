@@ -21,13 +21,13 @@ export interface SerialOptions {
    * The number of data bits per frame. Either 7 or 8.
    * @type {number | undefined}
    */
-  dataBits?: number | undefined;
+  dataBits?: 7 | 8 | undefined;
 
   /**
    * The number of stop bits at the end of a frame. Either 1 or 2.
    * @type {number | undefined}
    */
-  stopBits?: number | undefined;
+  stopBits?: 1 | 2 | undefined;
 
   /**
    * The parity mode: none, even or odd
@@ -63,9 +63,27 @@ class Transport {
   private lastTraceTime = Date.now();
   private reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   private buffer: Uint8Array = new Uint8Array(0);
+  private onDeviceLostCallback: (() => void) | null = null;
 
   constructor(public device: SerialPort, public tracing = false, enableSlipReader = true) {
     this.slipReaderEnabled = enableSlipReader;
+  }
+
+  /**
+   * Set callback for when device is lost
+   * @param {Function} callback Function to call when device is lost
+   */
+  setDeviceLostCallback(callback: (() => void) | null) {
+    this.onDeviceLostCallback = callback;
+  }
+
+  /**
+   * Update the device reference (used when re-selecting device after reset)
+   * @param {typeof import("w3c-web-serial").SerialPort} newDevice New SerialPort device
+   */
+  updateDevice(newDevice: SerialPort) {
+    this.device = newDevice;
+    this.trace("Device reference updated");
   }
 
   /**
@@ -92,6 +110,7 @@ class Transport {
    * @param {string} message Message to format as trace line.
    */
   trace(message: string) {
+    if (!this.tracing) return;
     const delta = Date.now() - this.lastTraceTime;
     const prefix = `TRACE ${delta.toFixed(3)}`;
     const traceMessage = `${prefix} ${message}`;
@@ -388,6 +407,14 @@ class Transport {
       }
     } catch (error) {
       console.error("Error reading from serial port:", error);
+
+      // Check if it's a NetworkError indicating device loss
+      if (error instanceof Error && error.name === "NetworkError" && error.message.includes("device has been lost")) {
+        this.trace("Device lost detected (NetworkError)");
+        if (this.onDeviceLostCallback) {
+          this.onDeviceLostCallback();
+        }
+      }
     } finally {
       this.buffer = new Uint8Array(0);
     }
