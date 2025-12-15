@@ -565,6 +565,8 @@ export class ESPLoader {
 
     for (let i = 0; i < 5; i++) {
       try {
+        this.debug(`Flushing input before sync attempt #${i}`);
+        await this.flushInput();
         this.debug(`Sync connect attempt ${i}`);
         const resp = await this.sync();
         this.debug(resp[0].toString());
