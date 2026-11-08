@@ -31,6 +31,14 @@ export class ESP32S31ROM extends ESP32C5ROM {
 
   public SPI_ADDR_REG_MSB = false;
 
+  public DR_REG_LP_WDT_BASE = 0x20801000;
+  public RTC_CNTL_WDTCONFIG0_REG = this.DR_REG_LP_WDT_BASE + 0x0;
+  public RTC_CNTL_WDTCONFIG1_REG = this.DR_REG_LP_WDT_BASE + 0x4;
+  public RTC_CNTL_WDTWPROTECT_REG = this.DR_REG_LP_WDT_BASE + 0x18;
+  public RTC_CNTL_WDT_WKEY = 0x50d83aa1;
+  public RTC_CNTL_SWD_CONF_REG = this.DR_REG_LP_WDT_BASE + 0x1c; // RTC_WDT_SWD_CONFIG_REG
+  public RTC_CNTL_SWD_WPROTECT_REG = this.DR_REG_LP_WDT_BASE + 0x20; // RTC_WDT_SWD_WPROTECT_REG
+
   public EFUSE_RD_REG_BASE = this.EFUSE_BASE + 0x030;
 
   public EFUSE_PURPOSE_KEY0_REG = this.EFUSE_BASE + 0x38;
@@ -197,6 +205,20 @@ export class ESP32S31ROM extends ESP32C5ROM {
     if (await loader.usesUsbOtg()) {
       loader.ESP_RAM_BLOCK = this.USB_RAM_BLOCK;
     }
+  }
+
+  /**
+   * Reset the chip using the LP watchdog (esptool uses this on USB-OTG instead of RTS).
+   * Overrides the ESP32-C5 placeholder, which throws.
+   * @param {ESPLoader} loader - Loader class to communicate with chip.
+   */
+  public async watchdogReset(loader: ESPLoader): Promise<void> {
+    loader.info("Hard resetting with a watchdog...");
+    await loader.writeReg(this.RTC_CNTL_WDTWPROTECT_REG, this.RTC_CNTL_WDT_WKEY); // unlock
+    await loader.writeReg(this.RTC_CNTL_WDTCONFIG1_REG, 2000); // set WDT timeout
+    await loader.writeReg(this.RTC_CNTL_WDTCONFIG0_REG, (1 << 31) | (5 << 28) | (1 << 8) | 2); // enable WDT
+    await loader.writeReg(this.RTC_CNTL_WDTWPROTECT_REG, 0); // lock
+    await new Promise((resolve) => setTimeout(resolve, 500)); // wait for reset to take effect
   }
 
   public async changeBaud(loader: ESPLoader): Promise<void> {
