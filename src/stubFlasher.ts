@@ -45,7 +45,7 @@ export async function getStubJsonByChipName(chipName: string, chipRevision?: num
       jsonStub = await import("./targets/stub_flasher/esp32h4.json", { with: { type: "json" } });
       break;
     case "ESP32-H21":
-      // No stub is published in esptool stub_flasher/2 yet.
+      jsonStub = await import("./targets/stub_flasher/esp32h21.json", { with: { type: "json" } });
       break;
     case "ESP32-E22":
       // No stub is published in esptool stub_flasher/2 yet.
