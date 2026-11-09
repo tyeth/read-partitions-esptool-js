@@ -208,8 +208,11 @@ class Transport {
       if (this.tracing) {
         this.trace(`Write ${outData.length} bytes: ${this.hexConvert(outData)}`);
       }
-      await writer.write(outData);
-      writer.releaseLock();
+      try {
+        await writer.write(outData);
+      } finally {
+        writer.releaseLock();
+      }
     }
   }
 
@@ -229,7 +232,16 @@ class Transport {
   /**
    * Read from serial device and append to buffer
    */
-  async readLoop() {
+  /** Resolves when the most recently started read loop has fully exited and released its reader. */
+  private readLoopFinished?: Promise<void>;
+
+  readLoop(): Promise<void> {
+    this.readLoopFinished = this.runReadLoop();
+    return this.readLoopFinished;
+  }
+
+  private async runReadLoop() {
+    this.trace(`readLoop started at ${this.baudrate} baud`);
     while (this.device.readable) {
       this.reader = this.device.readable?.getReader();
       try {
@@ -525,6 +537,7 @@ class Transport {
    * @param {typeof import("w3c-web-serial").SerialOptions} serialOptions Serial Options for WebUSB SerialPort class.
    */
   async connect(baud = 115200, serialOptions: SerialOptions = {}) {
+    this.trace(`connect: opening port at ${baud} baud`);
     await this.device.open({
       baudRate: baud,
       dataBits: serialOptions?.dataBits,
@@ -533,6 +546,7 @@ class Transport {
       parity: serialOptions?.parity,
       flowControl: serialOptions?.flowControl,
     });
+    this.trace(`connect: port open`);
     this.baudrate = baud;
   }
 
@@ -568,12 +582,20 @@ class Transport {
   /**
    * Wait for a given timeout ms for serial device unlock.
    * @param {number} timeout Timeout time in milliseconds (ms) to sleep
+   * @param {number} maxWait Total time in milliseconds (ms) to wait before giving up
    */
-  async waitForUnlock(timeout: number) {
+  async waitForUnlock(timeout: number, maxWait = 2000) {
+    const deadline = Date.now() + maxWait;
     while (
       (this.device.readable && this.device.readable.locked) ||
       (this.device.writable && this.device.writable.locked)
     ) {
+      if (Date.now() > deadline) {
+        this.trace(
+          `waitForUnlock: still locked after ${maxWait} ms (readable: ${this.device.readable?.locked}, writable: ${this.device.writable?.locked})`,
+        );
+        return;
+      }
       await sleep(timeout);
     }
   }
@@ -583,11 +605,63 @@ class Transport {
    */
   async disconnect() {
     if (this.device.readable?.locked) {
-      await this.reader?.cancel();
+      this.trace(`disconnect: cancelling reader`);
+      // Not awaited: in Chromium the cancel() promise may never resolve once the
+      // read loop's read() has settled {done: true} and released the reader.
+      // The loop's completion is the reliable signal that the streams are free.
+      this.reader?.cancel().catch((error) => this.trace(`disconnect: reader cancel rejected: ${error}`));
     }
+    if (this.readLoopFinished) {
+      this.trace(`disconnect: waiting for read loop to exit`);
+      await Promise.race([this.readLoopFinished, sleep(1000)]);
+      this.readLoopFinished = undefined;
+    }
+    this.trace(`disconnect: waiting for stream unlock`);
     await this.waitForUnlock(400);
-    await this.device.close();
+    // Tear the streams down one at a time, each with its own deadline, so a hang
+    // inside close() can be attributed to the receive flush, the transmit abort,
+    // or the OS-level port close rather than observed as one opaque stall.
+    await this.teardownStep("readable.cancel()", () => this.device.readable?.cancel());
+    await this.teardownStep("writable.abort()", () => this.device.writable?.abort());
+    // close() must be awaited to completion: on Windows with CP210x it can take
+    // ~300 s (a driver-level timeout) but it does resolve, and the port cannot be
+    // reopened before it does. Log progress so the wait is visible, never abandon it.
+    this.trace(`disconnect: closing port (this can take several minutes on some Windows drivers)`);
+    const started = Date.now();
+    const progress = setInterval(() => {
+      this.trace(`disconnect: close() still pending after ${Math.round((Date.now() - started) / 1000)} s`);
+    }, 15000);
+    try {
+      await this.device.close();
+    } finally {
+      clearInterval(progress);
+    }
     this.reader = undefined;
+    this.trace(`disconnect: port closed after ${Date.now() - started} ms`);
+  }
+
+  /**
+   * Run one disconnect step, logging the outcome, without letting it stall forever.
+   * @param {string} label Step name for the trace log.
+   * @param {Function} step Callback starting the step; an absent stream resolves immediately.
+   * @param {number} timeoutMs Deadline after which the step is abandoned.
+   * @returns {Promise<boolean>} False when the step timed out (it may still settle later).
+   */
+  private async teardownStep(label: string, step: () => Promise<void> | undefined, timeoutMs = 2000): Promise<boolean> {
+    this.trace(`disconnect: ${label} starting`);
+    const result = await Promise.race([
+      Promise.resolve(step())
+        .then(() => "done")
+        .catch((error) => {
+          this.trace(`disconnect: ${label} rejected: ${error}`);
+          return "done";
+        }),
+      sleep(timeoutMs).then(() => "timeout"),
+    ]);
+    this.trace(
+      `disconnect: ${label} ${result === "done" ? "completed" : `still pending after ${timeoutMs} ms, continuing`}`,
+    );
+    return result === "done";
   }
 }
 

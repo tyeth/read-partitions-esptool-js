@@ -1544,6 +1544,7 @@ export class ESPLoader {
    * so the stub's raw READ_REG can fault there, the probe times out and changeBaud()
    * wrongly falls back to the ROM baud rate. esptool dropped the same read for
    * the same reason (espressif/esptool d19413c, "Make write flash mem independent").
+   * @param {number} attempts Number of probe reads before declaring the chip unresponsive
    */
   private async isResponsive(attempts = 2): Promise<boolean> {
     const probeAddr = this.chip?.UART_DATE_REG_ADDR ?? this.CHIP_DETECT_MAGIC_REG_ADDR;
