@@ -295,6 +295,10 @@ connectButton.onclick = async () => {
     const flashOptions = {
       transport,
       baudrate: parseInt(baudrates.value),
+      // Use the selected baud for the ROM connection too: the ESP ROM autobauds
+      // on the 0x55 sync pattern, and a single-baud session skips changeBaud()
+      // and the close()/reopen that some Windows serial drivers stall on.
+      romBaudrate: parseInt(baudrates.value),
       terminal: espLoaderTerminal,
       debugLogging: debugLogging.checked,
     } as LoaderOptions;
