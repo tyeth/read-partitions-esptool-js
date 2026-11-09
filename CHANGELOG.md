@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Bug fixes
+
+- Update flasher stubs to esp-flasher-stub v1.4.1 (matches esptool master) and add the ESP32-H21 stub
+- Probe the chip's UART_DATE register instead of 0x40001000 after a baud-rate change. On ESP32-S31 that address is in the external-memory cache window, so the probe failed and esptool-js fell back to 115200 baud
+- Consume the MD5 digest frame the stub sends at the end of `readFlash()`
+- ESP32-S31: add LP watchdog reset registers and `watchdogReset()` (was the throwing ESP32-C5 placeholder)
+
 ## [v0.7.0](https://github.com/espressif/esptool-js/releases/tag/v0.7.0) - 2026-09-21
 
 ### Features

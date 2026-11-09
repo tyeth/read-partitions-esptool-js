@@ -1463,6 +1463,15 @@ export class ESPLoader {
       }
     }
 
+    // The stub always finishes READ_FLASH with a 16-byte MD5 digest frame
+    // (esptool reads and checks it). Leaving it unread puts a stale frame in
+    // the input stream, which a later command may take as its response.
+    const digest = await this.transport.read(this.FLASH_READ_TIMEOUT);
+    if (!(digest instanceof Uint8Array) || digest.length !== 16) {
+      throw new ESPError("Expected 16-byte MD5 digest after read flash, got: " + digest);
+    }
+    this.debug("read flash digest " + this.toHex(digest));
+
     return resp;
   }
 
@@ -1527,11 +1536,21 @@ export class ESPLoader {
    * Probe whether the chip still answers a register read.
    * Used after a baud-rate port reopen; sync() is unsuitable because the stub
    * answers SYNC once, not eight times like the ROM.
+   *
+   * The probe reads the chip's UART_DATE register, a peripheral register that is
+   * always readable. It must not read CHIP_DETECT_MAGIC_REG_ADDR (0x40001000):
+   * that address is mask ROM only on older chips. On ESP32-S31 it lies in the
+   * external-memory cache window (0x40000000-0x54000000; ROM is at 0x2F800000),
+   * so the stub's raw READ_REG can fault there, the probe times out and changeBaud()
+   * wrongly falls back to the ROM baud rate. esptool dropped the same read for
+   * the same reason (espressif/esptool d19413c, "Make write flash mem independent").
+   * @param {number} attempts Number of probe reads before declaring the chip unresponsive
    */
   private async isResponsive(attempts = 2): Promise<boolean> {
+    const probeAddr = this.chip?.UART_DATE_REG_ADDR ?? this.CHIP_DETECT_MAGIC_REG_ADDR;
     for (let i = 0; i < attempts; i++) {
       try {
-        await this.readReg(this.CHIP_DETECT_MAGIC_REG_ADDR, 500);
+        await this.readReg(probeAddr, 500);
         return true;
       } catch (error) {
         this.debug(`Responsiveness probe failed: ${error}`);
